@@ -1,0 +1,11 @@
+id            = "nook-soundboard"
+name          = "Ambient Soundboard"
+icon          = "headphones"
+size          = "wide"
+run           = ["python", "main.py"]
+mode          = "live"
+accepts_files = true
+page_size     = [650, 570]
+description   = "Lo-Fi ambient sound generator for focus, relaxation, and sleep."
+author        = "Shubhajeet"
+version       = "1.1.0"
