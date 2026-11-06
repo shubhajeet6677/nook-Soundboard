@@ -8,4 +8,4 @@ accepts_files = true
 page_size     = [650, 570]
 description   = "Lo-Fi ambient sound generator for focus, relaxation, and sleep."
 author        = "Shubhajeet"
-version       = "1.1.0"
+version       = "1.2.0"

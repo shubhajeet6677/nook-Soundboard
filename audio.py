@@ -89,18 +89,33 @@ class WaveOutBackend:
         self._thread = threading.Thread(target=self._mix_loop, daemon=True)
         self._thread.start()
 
-    def load_track(self, name, filepath):
+    def load_track(self, name, filepath, loop=True):
         try:
             with wave.open(filepath, "rb") as wf:
+                channels = wf.getnchannels()
+                sampwidth = wf.getsampwidth()
+                if sampwidth != 2:
+                    sys.stderr.write(f"[WaveOut] {filepath} must be 16-bit PCM WAV (got {sampwidth * 8}-bit)\n")
+                    return False
                 frames = wf.readframes(wf.getnframes())
                 count = len(frames) // 2
                 samples = struct.unpack("<" + "h" * count, frames)
+                if channels == 2:
+                    samples = [(samples[i] + samples[i + 1]) // 2 for i in range(0, len(samples) - 1, 2)]
                 with self._lock:
                     self.sounds[name] = samples
-                    if name not in self.channels:
-                        self.channels[name] = {"pos": 0, "vol": 0.0}
-        except Exception:
-            pass
+                    self.channels[name] = {"pos": 0, "vol": 0.0, "loop": loop, "busy": True}
+                return True
+        except Exception as e:
+            sys.stderr.write(f"[WaveOut] Failed to load {filepath} (only PCM WAV supported): {e}\n")
+            return False
+
+    def is_channel_busy(self, name):
+        with self._lock:
+            ch = self.channels.get(name)
+            if ch:
+                return ch.get("busy", False)
+        return False
 
     def unload_track(self, name):
         with self._lock:
@@ -147,11 +162,24 @@ class WaveOutBackend:
             if is_playing and master > 0 and active:
                 for name, vol, sound in active:
                     s_len = len(sound)
-                    pos = self.channels[name]["pos"]
+                    ch = self.channels[name]
+                    if not ch.get("busy", True):
+                        continue
+                    pos = ch["pos"]
+                    is_loop = ch.get("loop", True)
                     eff_vol = vol * master
                     for i in range(self.chunk_size):
-                        mixed[i] += int(sound[(pos + i) % s_len] * eff_vol)
-                    self.channels[name]["pos"] = (pos + self.chunk_size) % s_len
+                        idx = pos + i
+                        if not is_loop and idx >= s_len:
+                            ch["busy"] = False
+                            break
+                        mixed[i] += int(sound[idx % s_len] * eff_vol)
+                    if is_loop:
+                        ch["pos"] = (pos + self.chunk_size) % s_len
+                    else:
+                        ch["pos"] = pos + self.chunk_size
+                        if ch["pos"] >= s_len:
+                            ch["busy"] = False
 
             clamped = [max(-32767, min(32767, val)) for val in mixed]
             raw = struct.pack("<" + "h" * self.chunk_size, *clamped)
@@ -209,32 +237,44 @@ class PygameBackend:
     def start(self):
         pass
 
-    def load_track(self, name, filepath):
+    def load_track(self, name, filepath, loop=True):
         import pygame
 
+        try:
+            with self._lock:
+                if name in self.channels:
+                    try:
+                        self.channels[name].stop()
+                    except Exception:
+                        pass
+
+                sound = pygame.mixer.Sound(filepath)
+                channel = self.channels.get(name) or pygame.mixer.find_channel(True)
+                if not channel:
+                    pygame.mixer.set_num_channels(pygame.mixer.get_num_channels() + 4)
+                    channel = pygame.mixer.find_channel(True)
+
+                self.sounds[name] = sound
+                self.channels[name] = channel
+                if name not in self.layer_vols:
+                    self.layer_vols[name] = 0.0
+
+                channel.play(sound, loops=-1 if loop else 0)
+                eff_vol = self.layer_vols[name] * (0.0 if self.muted else self.master_vol)
+                channel.set_volume(eff_vol)
+                if not self.playing:
+                    channel.pause()
+            return True
+        except Exception as e:
+            sys.stderr.write(f"[Pygame] Failed to load {filepath}: {e}\n")
+            return False
+
+    def is_channel_busy(self, name):
         with self._lock:
-            if name in self.channels:
-                try:
-                    self.channels[name].stop()
-                except Exception:
-                    pass
-
-            sound = pygame.mixer.Sound(filepath)
-            channel = self.channels.get(name) or pygame.mixer.find_channel(True)
-            if not channel:
-                pygame.mixer.set_num_channels(pygame.mixer.get_num_channels() + 4)
-                channel = pygame.mixer.find_channel(True)
-
-            self.sounds[name] = sound
-            self.channels[name] = channel
-            if name not in self.layer_vols:
-                self.layer_vols[name] = 0.0
-
-            channel.play(sound, loops=-1)
-            eff_vol = self.layer_vols[name] * (0.0 if self.muted else self.master_vol)
-            channel.set_volume(eff_vol)
-            if not self.playing:
-                channel.pause()
+            ch = self.channels.get(name)
+            if ch:
+                return ch.get_busy()
+        return False
 
     def unload_track(self, name):
         with self._lock:
@@ -316,7 +356,7 @@ class SoundboardAudio:
             for name in self.layer_names:
                 p = self._find_sound_file(name)
                 if p:
-                    self.backend.load_track(name, p)
+                    self.load_track(name, p)
             if hasattr(self.backend, "start"):
                 self.backend.start()
 
@@ -382,18 +422,35 @@ class SoundboardAudio:
                 eff_vol = max(0.0, min(1.0, base_vol * state["curr"] * accent))
                 self.backend.set_layer_volume(name, eff_vol)
 
-    def load_track(self, name, filepath):
+    def load_track(self, name, filepath, loop=True):
         if self.backend:
             try:
-                self.backend.load_track(name, filepath)
-                with self._lock:
-                    if name not in self.volumes:
-                        self.volumes[name] = 0.0
-                return True
+                ok = self.backend.load_track(name, filepath, loop=loop)
+                if ok:
+                    with self._lock:
+                        if name not in self.volumes:
+                            self.volumes[name] = 0.0
+                    return True
+                else:
+                    sys.stderr.write(f"[audio] Backend failed to load '{name}' from {filepath}\n")
+                    return False
             except Exception as e:
-                sys.stderr.write(f"Failed to load track {name} from {filepath}: {e}\n")
+                sys.stderr.write(f"[audio] Failed to load track '{name}' from {filepath}: {e}\n")
                 return False
         return False
+
+    def is_channel_busy(self, name):
+        if self.backend and hasattr(self.backend, "is_channel_busy"):
+            return self.backend.is_channel_busy(name)
+        return False
+
+    def is_pygame_active(self):
+        return type(self.backend).__name__ == "PygameBackend"
+
+    def get_loaded_track_count(self):
+        if self.backend and hasattr(self.backend, "sounds"):
+            return len(self.backend.sounds)
+        return 0
 
     def unload_track(self, name):
         if self.backend:

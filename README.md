@@ -11,11 +11,11 @@ A native ambient audio mixer tile and soundscape player for [Nook](https://githu
 ## Features
 
 ### 🎛️ Tile
-- **Single Toggle Control**: One-click toggle button on your floating notch to play/pause your favorite soundscape.
+- **Preset Thumbnail Badges**: The **Wide** tile displays an authentic visual preset thumbnail badge (e.g. 🔥 campfire flame, 🌧️ rain cloud, ☕ coffee cup, 🧠 focus brain, 💿 lo-fi disc, 🌲 forest tree) alongside the play/pause button and title.
 - **Adaptive Layouts**:
   - **Small (44×44)**: Clean, high-contrast play/pause button with sleep countdown indicator.
-  - **Wide (104×36)**: Soundscape title, layer count, playback state, and sleep countdown.
-  - **Large (104×104)**: Mini ambient deck displaying active soundscape, layer icons, volume, and sleep timer.
+  - **Wide (104×36)**: Preset thumbnail, soundscape title, layer count, playback state, and sleep countdown.
+  - **Large (104×104)**: Mini ambient deck displaying preset badge, active soundscape, layer icons, volume, and sleep timer.
 - **Accent Gradient**: Lights up with your Windows / Nook accent color when active.
 - **Pill Badge**: Shows a circular countdown ring badge when a sleep timer is running, or a headphones glyph during active playback.
 
@@ -27,19 +27,19 @@ A native ambient audio mixer tile and soundscape player for [Nook](https://githu
   - 🔥 **Campfire Night** (75% Campfire + 30% Night Wind + 15% Forest Birds)
   - 🎹 **Lo-Fi Study** (70% Lo-Fi Beats + 25% Cafe + 15% White Noise)
   - 🌲 **Forest Haven** (60% Forest Birds + 35% Breeze + 25% Rain)
-- **📁 Custom Sounds From Device**:
-  - **Drag & Drop**: Drag any audio file (`.wav`, `.mp3`, `.ogg`, `.flac`, `.aac`, `.m4a`) from Windows Explorer and drop it directly onto the Nook page.
-  - **File Picker**: Click the **"+ Add Sound..."** button to browse and import any sound file using the native Windows file chooser dialog.
-  - **Independent Volume & Removal**: Each custom sound gets its own dedicated volume slider (0–100%) and a delete button (`trash`) to remove it.
-- **8 Authentic Ambient Audio Layers**:
-  - 🌧️ **Rain** (`rain.mp3`): Real outdoor rainfall recording
-  - ⚡ **Thunder** (`thunder.mp3`): Real rolling thunderstorm recording
-  - 🔥 **Campfire** (`fire.mp3`): Authentic wood burning hearth crackles
-  - ☕ **Cafe** (`cafe.ogg`): Genuine cafe room atmosphere & gentle chatter
-  - 💿 **Lo-Fi Beats** (`lofi.mp3`): Authentic recorded chillhop study beat
-  - 〰️ **White Noise** (`noise.ogg`): Authentic 20-second public domain white noise
-  - 💨 **Wind & Waves** (`wind.mp3`): Real ocean surf swells and coastal breeze
-  - 🌳 **Forest Birds** (`birds.mp3`): Natural woodland bird field recording
+- **📁 Custom Tracks & Folder Shuffle Playlists**:
+  - **Single Files**: Click **"+ File"** or drag and drop any audio file (`.wav`, `.mp3`, `.ogg`, `.flac`) to loop a custom track.
+  - **Folder Shuffle Playlists**: Click **"+ Folder (Shuffle)"** or drag and drop an entire local folder of songs/sounds. It plays tracks from the folder, automatically shuffles to another song when one ends, and includes a 1-click **Shuffle** (`shuffle`) button to skip manually.
+  - **Independent Volume & Removal**: Each custom track and folder gets its own volume slider (0–100%) and removal button (`trash`).
+- **8 Authentic 1-Minute Ambient Audio Layers**:
+  - 🌧️ **Rain** (`rain.wav`): Full 60s outdoor rainfall loop
+  - ⚡ **Thunder** (`thunder.wav`): Full 60s rolling thunderstorm loop
+  - 🔥 **Campfire** (`fire.wav`): Full 60s wood hearth crackles
+  - ☕ **Cafe** (`cafe.wav`): Full 60s cafe room atmosphere & gentle chatter
+  - 💿 **Lo-Fi Beats** (`lofi.wav`): Full 60s authentic recorded chillhop study beat
+  - 〰️ **White Noise** (`noise.wav`): Full 60s smooth focus noise
+  - 💨 **Wind & Waves** (`wind.wav`): Full 60s ocean surf swells and coastal breeze
+  - 🌳 **Forest Birds** (`birds.wav`): Full 60s woodland birdsong field recording
 - **Master Volume**: Precise master level slider in the top bar.
 - **Organic Random Variations**: Toggleable dynamic volume drift (±4% for Lo-Fi beat, ±15% for natural sounds) and sporadic accent swells (thunder rolls, wind gusts, crackle bursts) so ambient loops never feel static or repetitive.
 - **Sleep Timer**: Preset durations (**Off**, **15m**, **30m**, **45m**, **60m**) with real-time countdown.
@@ -57,9 +57,9 @@ A native ambient audio mixer tile and soundscape player for [Nook](https://githu
   - Real-time countdown on the page and pill ring progress badge.
   - Automatically pauses playback and clears badge when timer reaches zero.
 
-### 🔊 Audio Engine
-- **Hardware-Accelerated Pygame Mixer**: Seamless multi-track looping and per-channel volume mixing.
-- **Zero-Dependency WaveOut Fallback**: Built-in Windows `ctypes.windll.winmm` PCM mixer for out-of-the-box compatibility without external dependencies.
+### 🔊 Dual Audio Engine
+- **Zero-Dependency WaveOut Player**: Built-in Windows `ctypes.windll.winmm` PCM mixer. All 8 bundled ambient loops play out of the box with zero external packages installed.
+- **Hardware-Accelerated Pygame Mixer**: Automatically activates if `pygame` or `pygame-ce` is installed for DirectSound hardware-accelerated playback and compressed custom formats (.mp3, .ogg, .flac).
 
 ---
 
@@ -71,7 +71,11 @@ A native ambient audio mixer tile and soundscape player for [Nook](https://githu
    git clone https://github.com/username/nook-soundboard.git "$env:APPDATA\Nook\plugins\nook-soundboard"
    ```
 2. Enable **Plugin dev mode** in Nook Settings (or set `NOOK_PLUGIN_DEV=1`).
-3. Ambient Soundboard will immediately appear in your tile catalog!
+3. Ambient Soundboard will immediately appear in your tile catalog and play out of the box!
+4. *(Optional)* Install `pygame-ce` if you want to import compressed custom audio tracks (.mp3, .ogg):
+   ```powershell
+   pip install pygame-ce
+   ```
 
 ---
 

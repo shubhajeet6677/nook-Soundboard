@@ -46,26 +46,38 @@ LAYER_MAP = {l["id"]: l for l in LAYERS}
 PRESETS = [
     {
         "name": "Rainy Cabin",
+        "icon": "cloud-rain",
+        "color": "blue",
         "volumes": {"rain": 70, "thunder": 30, "fire": 25, "cafe": 0, "lofi": 0, "noise": 0, "wind": 15, "birds": 0},
     },
     {
         "name": "Cozy Cafe",
+        "icon": "coffee",
+        "color": "orange",
         "volumes": {"rain": 20, "thunder": 0, "fire": 0, "cafe": 65, "lofi": 40, "noise": 0, "wind": 0, "birds": 0},
     },
     {
         "name": "Deep Focus",
+        "icon": "brain",
+        "color": "purple",
         "volumes": {"rain": 40, "thunder": 0, "fire": 0, "cafe": 0, "lofi": 0, "noise": 55, "wind": 20, "birds": 0},
     },
     {
         "name": "Campfire Night",
+        "icon": "fire",
+        "color": "orange",
         "volumes": {"rain": 0, "thunder": 0, "fire": 75, "cafe": 0, "lofi": 0, "noise": 0, "wind": 30, "birds": 15},
     },
     {
         "name": "Lo-Fi Study",
+        "icon": "disc",
+        "color": "pink",
         "volumes": {"rain": 15, "thunder": 0, "fire": 0, "cafe": 25, "lofi": 70, "noise": 15, "wind": 0, "birds": 0},
     },
     {
         "name": "Forest Haven",
+        "icon": "tree",
+        "color": "green",
         "volumes": {"rain": 25, "thunder": 0, "fire": 0, "cafe": 0, "lofi": 0, "noise": 0, "wind": 35, "birds": 60},
     },
 ]
@@ -101,11 +113,18 @@ for lid, vol in volumes.items():
 
 for s in list(custom_sounds):
     sid = s["id"]
-    spath = s.get("path", "")
     svol = s.get("vol", 50)
-    if os.path.isfile(spath):
-        if audio.load_track(sid, spath):
-            audio.set_layer_volume(sid, svol / 100.0)
+    stype = s.get("type", "file")
+    if stype == "folder":
+        cur_file = s.get("current_track", "")
+        if os.path.isfile(cur_file):
+            if audio.load_track(sid, cur_file, loop=False):
+                audio.set_layer_volume(sid, svol / 100.0)
+    else:
+        spath = s.get("path", "")
+        if os.path.isfile(spath):
+            if audio.load_track(sid, spath, loop=True):
+                audio.set_layer_volume(sid, svol / 100.0)
 
 audio.set_master_volume(master_volume / 100.0)
 audio.set_variations(variations_enabled)
@@ -173,9 +192,10 @@ def add_custom_sound(src_path):
         sys.stderr.write(f"Copy error: {e}\n")
         dest_path = src_path
 
-    if audio.load_track(sound_id, dest_path):
+    if audio.load_track(sound_id, dest_path, loop=True):
         item = {
             "id": sound_id,
+            "type": "file",
             "name": clean_name,
             "path": dest_path,
             "vol": 50,
@@ -185,6 +205,74 @@ def add_custom_sound(src_path):
         save_state()
         _register_custom_sound_handlers(sound_id)
         draw()
+    else:
+        app.log(f"Cannot load {clean_name}. Install pygame-ce for compressed formats.", "error")
+
+
+def add_custom_folder(folder_path):
+    if not os.path.isdir(folder_path):
+        return
+    audio_files = []
+    for root, _, files in os.walk(folder_path):
+        for f in files:
+            ext = os.path.splitext(f)[1].lower()
+            if ext in AUDIO_EXTS:
+                audio_files.append(os.path.join(root, f))
+
+    if not audio_files:
+        app.log("No audio files found in selected folder", "warning")
+        return
+
+    import random
+    first_track = random.choice(audio_files)
+    sound_id = f"cf_{int(time.time() * 1000) % 1000000}_{len(custom_sounds) + 1}"
+    base_name = os.path.basename(folder_path.rstrip("\\/"))
+    clean_name = base_name.replace("_", " ").replace("-", " ").strip()
+    if len(clean_name) > 18:
+        clean_name = clean_name[:18].strip() + "…"
+    clean_name = clean_name.title() if clean_name.islower() else clean_name
+
+    track_name = os.path.basename(first_track)
+
+    if audio.load_track(sound_id, first_track, loop=False):
+        item = {
+            "id": sound_id,
+            "type": "folder",
+            "name": clean_name,
+            "folder_path": folder_path,
+            "files": audio_files,
+            "current_track": first_track,
+            "current_track_name": track_name,
+            "vol": 50,
+        }
+        custom_sounds.append(item)
+        audio.set_layer_volume(sound_id, 0.5)
+        save_state()
+        _register_custom_sound_handlers(sound_id)
+        draw()
+    else:
+        app.log(f"Failed to play tracks in {clean_name}", "error")
+
+
+def shuffle_custom_folder(sound_id):
+    target = next((s for s in custom_sounds if s["id"] == sound_id and s.get("type") == "folder"), None)
+    if not target:
+        return
+    files = target.get("files", [])
+    if not files:
+        return
+
+    import random
+    curr = target.get("current_track")
+    cands = [f for f in files if f != curr] if len(files) > 1 else files
+    next_track = random.choice(cands)
+    target["current_track"] = next_track
+    target["current_track_name"] = os.path.basename(next_track)
+
+    audio.load_track(sound_id, next_track, loop=False)
+    audio.set_layer_volume(sound_id, target.get("vol", 50) / 100.0)
+    save_state()
+    draw()
 
 
 def remove_custom_sound(sound_id):
@@ -218,6 +306,22 @@ def build_tile_view():
         tooltip="Pause soundscape" if is_playing else "Play soundscape",
     )
 
+    if is_custom:
+        current_icon = "faders"
+        current_color = "accent"
+    else:
+        preset = PRESETS[preset_idx]
+        current_icon = preset.get("icon", "headphones")
+        current_color = preset.get("color", "accent")
+
+    preset_thumb = nook.icon(
+        current_icon,
+        size=20,
+        color=current_color if is_playing else "dim",
+        fill=True,
+        tooltip=soundscape_name,
+    )
+
     if size == "small":
         if rem_str:
             return nook.column(
@@ -236,7 +340,8 @@ def build_tile_view():
         ]
         for s in custom_sounds:
             if s.get("vol", 0) > 0:
-                active_icons.append(nook.icon("music-note", size=16, color="accent"))
+                s_icon = "folder" if s.get("type") == "folder" else "music-note"
+                active_icons.append(nook.icon(s_icon, size=16, color="accent"))
 
         if not active_icons:
             active_icons = [nook.text("No active layers", size="small", color="dim")]
@@ -251,14 +356,14 @@ def build_tile_view():
             [
                 nook.row(
                     [
-                        nook.icon("headphones", size=18, color="accent" if is_playing else "dim"),
+                        nook.icon(current_icon, size=18, color=current_color if is_playing else "dim", fill=True),
                         nook.text("Soundboard", size="body", bold=True),
                         nook.spacer(),
                         play_btn,
                     ],
                     align="center",
                 ),
-                nook.text(soundscape_name, size="title", bold=True, color="accent" if is_playing else "text"),
+                nook.text(soundscape_name, size="title", bold=True, color=current_color if is_playing else "text"),
                 nook.row(active_icons[:5], gap=4, align="center"),
                 nook.spacer(),
                 nook.row(
@@ -284,6 +389,7 @@ def build_tile_view():
     return nook.row(
         [
             play_btn,
+            preset_thumb,
             nook.column(
                 [
                     nook.text(soundscape_name, size="title"),
@@ -293,7 +399,7 @@ def build_tile_view():
             ),
         ],
         align="center",
-        gap=8,
+        gap=6,
     )
 
 
@@ -389,25 +495,60 @@ def build_page_view():
     for s in custom_sounds:
         svol = s.get("vol", 0)
         is_active = svol > 0
-        custom_cells.append(
-            nook.card(
-                [
-                    nook.row(
-                        [
-                            nook.icon("music-note", size=16, color="accent" if is_active else "dim"),
-                            nook.text(s["name"], size="body", bold=is_active),
-                            nook.spacer(),
-                            nook.text(f"{svol}%", size="small", color="accent" if is_active else "dim", mono=True),
-                            nook.button(f"del_sound:{s['id']}", icon="trash", tooltip=f"Remove {s['name']}"),
-                        ],
-                        align="center",
-                    ),
-                    nook.slider(f"layer:{s['id']}", value=svol, min=0, max=100, step=5, width=180),
-                ],
-                padding=6,
-                gap=3,
+        stype = s.get("type", "file")
+
+        if stype == "folder":
+            cur_name = s.get("current_track_name", "Track")
+            if len(cur_name) > 16:
+                cur_name = cur_name[:14] + "…"
+            track_count = len(s.get("files", []))
+            custom_cells.append(
+                nook.card(
+                    [
+                        nook.row(
+                            [
+                                nook.icon("folder", size=16, color="accent" if is_active else "dim"),
+                                nook.column(
+                                    [
+                                        nook.text(s["name"], size="body", bold=is_active),
+                                        nook.text(f"♪ {cur_name} ({track_count})", size="small", color="dim"),
+                                    ],
+                                    gap=0,
+                                ),
+                                nook.spacer(),
+                                nook.text(f"{svol}%", size="small", color="accent" if is_active else "dim", mono=True),
+                                nook.button(f"shuffle_sound:{s['id']}", icon="shuffle", tooltip="Shuffle to next track in folder"),
+                                nook.button(f"del_sound:{s['id']}", icon="trash", tooltip=f"Remove folder {s['name']}"),
+                            ],
+                            align="center",
+                            gap=4,
+                        ),
+                        nook.slider(f"layer:{s['id']}", value=svol, min=0, max=100, step=5, width=180),
+                    ],
+                    padding=6,
+                    gap=3,
+                )
             )
-        )
+        else:
+            custom_cells.append(
+                nook.card(
+                    [
+                        nook.row(
+                            [
+                                nook.icon("music-note", size=16, color="accent" if is_active else "dim"),
+                                nook.text(s["name"], size="body", bold=is_active),
+                                nook.spacer(),
+                                nook.text(f"{svol}%", size="small", color="accent" if is_active else "dim", mono=True),
+                                nook.button(f"del_sound:{s['id']}", icon="trash", tooltip=f"Remove {s['name']}"),
+                            ],
+                            align="center",
+                        ),
+                        nook.slider(f"layer:{s['id']}", value=svol, min=0, max=100, step=5, width=180),
+                    ],
+                    padding=6,
+                    gap=3,
+                )
+            )
 
     custom_children = [
         nook.row(
@@ -415,9 +556,11 @@ def build_page_view():
                 nook.icon("music-notes", size=16, color="accent"),
                 nook.text("My Custom Tracks", size="body", bold=True),
                 nook.spacer(),
-                nook.button("browse_sound", label="+ Add Sound...", icon="plus", tooltip="Import audio file from device"),
+                nook.button("browse_sound", label="+ File", icon="music-note", tooltip="Import single audio file from device"),
+                nook.button("browse_folder", label="+ Folder (Shuffle)", icon="folder-plus", tooltip="Import a local folder of sounds to shuffle continuously"),
             ],
             align="center",
+            gap=6,
         ),
     ]
 
@@ -428,7 +571,7 @@ def build_page_view():
             nook.row(
                 [
                     nook.icon("waveform", size=14, color="dim"),
-                    nook.text("Drop audio files (.wav, .mp3, .ogg) or click + Add Sound", size="small", color="dim"),
+                    nook.text("Drop audio files or folders, or click + File / + Folder (Shuffle)", size="small", color="dim"),
                 ],
                 align="center",
                 gap=6,
@@ -456,8 +599,27 @@ def build_page_view():
         padding=8,
     )
 
+    page_cards = [header_card]
+    if not audio.is_pygame_active() and audio.get_loaded_track_count() == 0:
+        page_cards.append(
+            nook.card(
+                [
+                    nook.row(
+                        [
+                            nook.icon("warning", size=16, color="orange"),
+                            nook.text("Pygame required for MP3/OGG audio. Run: pip install pygame-ce", size="small", color="orange"),
+                        ],
+                        align="center",
+                        gap=6,
+                    )
+                ],
+                padding=6,
+            )
+        )
+    page_cards.extend([presets_card, mixer_card, custom_card, timer_card])
+
     page_view = nook.column(
-        [header_card, presets_card, mixer_card, custom_card, timer_card],
+        page_cards,
         gap=6,
         scroll=False,
     )
@@ -560,6 +722,7 @@ for l in LAYERS:
 def _register_custom_sound_handlers(sound_id):
     app.on(f"layer:{sound_id}")(lambda e, sid=sound_id: handle_layer_slider(sid, e))
     app.on(f"del_sound:{sound_id}")(lambda e, sid=sound_id: remove_custom_sound(sid))
+    app.on(f"shuffle_sound:{sound_id}")(lambda e, sid=sound_id: shuffle_custom_folder(sid))
 
 
 for s in custom_sounds:
@@ -591,11 +754,33 @@ def handle_browse_sound(event):
     threading.Thread(target=_open_dialog, daemon=True).start()
 
 
+@app.on("browse_folder")
+def handle_browse_folder(event):
+    def _open_folder_dialog():
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            selected = filedialog.askdirectory(title="Select Folder of Sounds to Shuffle")
+            root.destroy()
+            if selected:
+                add_custom_folder(selected)
+        except Exception as e:
+            sys.stderr.write(f"Folder picker error: {e}\n")
+
+    threading.Thread(target=_open_folder_dialog, daemon=True).start()
+
+
 @app.on_message("files")
 def handle_dropped_files(msg):
     paths = msg.get("paths", [])
     for p in paths:
-        add_custom_sound(p)
+        if os.path.isdir(p):
+            add_custom_folder(p)
+        elif os.path.isfile(p):
+            add_custom_sound(p)
 
 
 @app.on_message("event")
@@ -604,7 +789,10 @@ def handle_dynamic_event(msg):
     if eid.startswith("del_sound:"):
         sid = eid.split(":", 1)[1]
         remove_custom_sound(sid)
-    elif eid.startswith("layer:c_"):
+    elif eid.startswith("shuffle_sound:"):
+        sid = eid.split(":", 1)[1]
+        shuffle_custom_folder(sid)
+    elif eid.startswith("layer:c_") or eid.startswith("layer:cf_"):
         sid = eid.split(":", 1)[1]
         handle_layer_slider(sid, msg)
 
@@ -648,6 +836,14 @@ def handle_timer_chips(event):
 @app.every(1.0)
 def tick_sleep_timer():
     global is_playing, sleep_timer_seconds, sleep_timer_end, timer_chip_idx
+    # Check folder tracks completion to auto-shuffle to next song
+    if is_playing:
+        for s in custom_sounds:
+            if s.get("type") == "folder" and s.get("vol", 0) > 0:
+                sid = s["id"]
+                if not audio.is_channel_busy(sid):
+                    shuffle_custom_folder(sid)
+
     if sleep_timer_end:
         rem = sleep_timer_end - time.time()
         if rem <= 0:
